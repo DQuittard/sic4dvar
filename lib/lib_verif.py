@@ -43,6 +43,8 @@ def check_na(value):
         return True
     if value is np.ma.masked:
         return True
+    if np.ma.is_masked(value):
+        return True
     if isinstance(value, np.ma.core.MaskedConstant):
         return True
     try:
@@ -64,6 +66,11 @@ def check_na(value):
         if value.is_empty:
             return True
     except AttributeError:
+        pass
+    try:
+        if value < -100000000.0:
+            return True
+    except TypeError:
         pass
     return False
 

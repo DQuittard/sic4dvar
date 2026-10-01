@@ -7,11 +7,11 @@ import pandas as pd
 import scipy
 from pathlib import Path
 import sic4dvar_params as params
-from sic4dvar_functions.a650 import V, W
+from sic4dvar_functions.c550 import V, W
 from sic4dvar_functions.sic4dvar_calculations import check_na, verify_name_length
 from sic4dvar_functions.sic4dvar_helper_functions import compute_mean_var_from_2D_array, compute_mean_var_from_2D_array_sum, global_large_deviations_removal, grad_variance, global_large_deviations_removal_relative, global_large_deviations_removal_experimental
 from sic4dvar_functions.sic4dvar_gnuplot_save import gnuplot_save, gnuplot_save_c1c2
-from sic4dvar_functions.v76 import K
+from sic4dvar_functions.Y786 import K
 
 def pooling(sic4dvar_dict, test_swot_z_obs):
     pass_nums = []

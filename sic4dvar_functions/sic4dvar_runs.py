@@ -29,6 +29,7 @@ import multiprocessing as mp
 import os
 import traceback
 from copy import deepcopy
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -41,11 +42,11 @@ from sic4dvar_functions import sic4dvar_calculations as calc
 from sic4dvar_functions.sic4dvar_calculations import verify_name_length
 from sic4dvar_functions.sic4dvar_helper_functions import enable_prints, get_input_data, get_reach_dataset, global_large_deviations_removal, write_output
 from sic4dvar_functions.sic4dvar_gnuplot_save import gnuplot_save_q_station
-from sic4dvar_functions.v76 import K
+from sic4dvar_functions.Y786 import K
 from sic4dvar_modules.sic4dvar_launcher import sic4dvar_compute_discharge, sic4dvar_preprocessing, sic4dvar_set_prior
 from sic4dvar_modules.sic4dvar_prepare import prepare_params
 
-def worker_fn_modules(j, param_dict, queue, upper):
+def worker_fn_modules_old(j, param_dict, queue, upper):
     try:
         if param_dict['run_type'] == 'seq':
             reach_data = get_reach_dataset(param_dict, j)
@@ -59,6 +60,21 @@ def worker_fn_modules(j, param_dict, queue, upper):
         error_info = traceback.format_exc()
         queue.put((j, None, error_info))
 
+def worker_fn_modules(j, param_dict):
+    try:
+        if param_dict['run_type'] == 'seq':
+            reach_data = get_reach_dataset(param_dict, j)
+            result = seq_run_modules(param_dict, reach_data)
+        elif param_dict['run_type'] == 'set':
+            reach_data = get_reach_dataset(param_dict, j)
+            result = set_run_modules(param_dict, reach_data)
+        else:
+            raise ValueError(f'Unknown run_type: {param_dict['run_type']}')
+        return (j, result, None)
+    except Exception:
+        import traceback
+        return (j, None, traceback.format_exc())
+
 def execute_method(args):
     instance, method_name, arg = args
     method = getattr(instance, method_name)
@@ -68,6 +84,8 @@ def seq_run_modules(param_dict, reach_dict):
     try:
         log_path = param_dict['log_dir'].joinpath('sic4dvar_' + str(reach_dict['reach_id']) + '.log')
         output_path = param_dict['output_dir'].joinpath(f'{reach_dict['reach_id']}_sic4dvar.nc')
+        with open('/tmp/debug_reaches.txt', 'a') as f:
+            f.write(f'PID={os.getpid()} reach={reach_dict['reach_id']} log={log_path}\n')
         set_logger(param_dict, log_path)
         logging.info(f'Run reach {reach_dict['reach_id']}')
         logging.info('Reach infos : ')
@@ -122,7 +140,11 @@ def seq_run_modules(param_dict, reach_dict):
                         for t in range(1, len(sic4dvar_df['sic4dvar_qt'])):
                             Q_a31_mean += (sic4dvar_df['sic4dvar_q'].iloc[t] + sic4dvar_df['sic4dvar_q'].iloc[t - 1]) / 2 * (sic4dvar_df['sic4dvar_qt'].iloc[t] - sic4dvar_df['sic4dvar_qt'].iloc[t - 1])
                             time_scaling += sic4dvar_df['sic4dvar_qt'].iloc[t] - sic4dvar_df['sic4dvar_qt'].iloc[t - 1]
-                        Q_a31_mean = Q_a31_mean / time_scaling
+                        if time_scaling != 0:
+                            Q_a31_mean = Q_a31_mean / time_scaling
+                        else:
+                            logging.warning('Time scaling is zero, cannot compute mean.')
+                            Q_a31_mean = np.nan
                         Q_a31_std = 0.0
                         for t in range(1, len(sic4dvar_df['sic4dvar_qt'])):
                             Q_a31_std += ((sic4dvar_df['sic4dvar_q'].iloc[t] - Q_a31_mean) ** 2 + (sic4dvar_df['sic4dvar_q'].iloc[t - 1] - Q_a31_mean) ** 2) / 2 * (sic4dvar_df['sic4dvar_qt'].iloc[t] - sic4dvar_df['sic4dvar_qt'].iloc[t - 1])
@@ -189,7 +211,7 @@ def seq_run_modules(param_dict, reach_dict):
         if not param_dict['safe_mode']:
             return -1
 
-def run_parallel(param_dict, down, upper, max_procs=4):
+def run_parallel_old(param_dict, down, upper, max_procs=4):
     manager = mp.Manager()
     queue = manager.Queue()
     results = {}
@@ -221,6 +243,20 @@ def run_parallel(param_dict, down, upper, max_procs=4):
                 return -1
         else:
             results[j_done] = result
+    return results
+
+def run_parallel(param_dict, down, upper, max_procs=4):
+    results = {}
+    with ProcessPoolExecutor(max_workers=max_procs) as ex:
+        futures = {ex.submit(worker_fn_modules, j, param_dict): j for j in range(down, upper)}
+        for fut in as_completed(futures):
+            j = futures[fut]
+            try:
+                results[j] = fut.result()
+            except Exception as e:
+                print(f'Job {j} failed: {e}')
+                if not param_dict['safe_mode']:
+                    return -1
     return results
 
 def sic4dvar_run(param_dict):

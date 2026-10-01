@@ -7,7 +7,7 @@ import scipy
 import sic4dvar_params as params
 from lib.lib_dates import get_swot_dates, seconds_to_date_old
 from lib.lib_swot_obs import filter_swot_obs_on_quality, get_flag_dict_from_config
-from sic4dvar_algos.s157 import *
+from sic4dvar_algos.X653 import *
 from sic4dvar_algos.algo5 import *
 from sic4dvar_functions.sic4dvar_calculations import compute_bb, verify_name_length
 from sic4dvar_functions.sic4dvar_helper_functions import build_output_q_masked_array, correlation_nodes, get_weighted_q_data
@@ -98,27 +98,91 @@ def check_reach_data_SET(sic4dvar_dict, iR=0):
     return True
 
 def optional_dA_fill(sic4dvar_dict, input_reach_dA, filtered_reach_w, filtered_reach_z, params):
-    dA_from_mike_method = False
-    force_compute = False
-    if input_reach_dA.mask.all() or force_compute:
-        if not dA_from_mike_method:
+    count = 0
+    for t in range(0, len(input_reach_dA)):
+        if check_na(input_reach_dA[t]):
+            count += 1
+    if count == len(input_reach_dA):
+        logging.info('All input reach dA values are missing.')
+    elif params.force_compute:
+        logging.info('Force compute is enabled.')
+    if count == len(input_reach_dA) or params.force_compute:
+        logging.info('Computing dA.')
+        if not params.dA_from_mike_method:
+            logging.info('Computing dA using sic4dvar bathymetry computation.')
             a5_xr, a5_yr, _ = bathymetry_computation([filtered_reach_w], [filtered_reach_z], sic4dvar_dict['param_dict'], params, input_data=sic4dvar_dict['input_data'], filtered_data=sic4dvar_dict['filtered_data'], slope=sic4dvar_dict['input_data']['reach_s'], algo='algo5')
             node_a, _, _, _, _ = call_func_APR([filtered_reach_w], [filtered_reach_z], a5_xr, a5_yr, params, sic4dvar_dict['param_dict'])
             masked_data = np.ma.masked_values(np.array(node_a[0]), value=-9999.0)
             filtered_reach_dA = masked_data
-        elif dA_from_mike_method:
+        elif params.dA_from_mike_method:
+            logging.info('Computing dA using Mike method.')
             a5_xr, a5_yr, node_a = bathymetry_computation([filtered_reach_w], [filtered_reach_z], sic4dvar_dict['param_dict'], params, input_data=sic4dvar_dict['input_data'], filtered_data=sic4dvar_dict['filtered_data'], slope=sic4dvar_dict['input_data']['reach_s'], force_method='Mike', algo='algo5')
             masked_data = np.ma.masked_values(np.array(node_a), value=-9999.0)
             filtered_reach_dA = masked_data
         return filtered_reach_dA
-    elif not input_reach_dA.mask.all() and (not force_compute):
+    elif not count == len(input_reach_dA) and (not params.force_compute):
+        logging.info('Using existing input reach dA values.')
         return input_reach_dA
+
+def algo5_set_error_state(sic4dvar_dict, i=0):
+    if sic4dvar_dict['param_dict']['run_type'] == 'seq':
+        sic4dvar_dict['output']['valid_a5'] = 0
+    if sic4dvar_dict['param_dict']['run_type'] == 'set':
+        sic4dvar_dict['output']['valid_a5_sets'][i] = 0
+
+def prepare_and_verify_reach_data(sic4dvar_dict, use_aggregated_node_data=False, use_projected_width=False, i=0):
+    reach_z = deepcopy(sic4dvar_dict['input_data']['reach_z'])
+    reach_w = deepcopy(sic4dvar_dict['input_data']['reach_w'])
+    count_z = 0
+    count_w = 0
+    for t in range(0, len(sic4dvar_dict['input_data']['reach_z'])):
+        if check_na(sic4dvar_dict['input_data']['reach_z'][t]):
+            count_z += 1
+        if check_na(sic4dvar_dict['input_data']['reach_w'][t]):
+            count_w += 1
+    count_reach_xr = 0
+    count_reach_yr = 0
+    for t in range(0, len(sic4dvar_dict['input_data']['reach_xr'])):
+        if check_na(sic4dvar_dict['input_data']['reach_xr'][t]):
+            count_reach_xr += 1
+        if check_na(sic4dvar_dict['input_data']['reach_yr'][t]):
+            count_reach_yr += 1
+    if count_reach_xr >= len(sic4dvar_dict['input_data']['reach_xr']) or count_reach_yr >= len(sic4dvar_dict['input_data']['reach_yr']):
+        logging.warning('ALGO 5: Reach bathymetry data is missing/all NaNs for width or elevation, need more than 0 point to compute.')
+        algo5_set_error_state(sic4dvar_dict, i)
+        return (np.full(sic4dvar_dict['input_data']['reach_w'].shape, np.nan), np.full(sic4dvar_dict['input_data']['reach_z'].shape, np.nan))
+    if count_z >= len(sic4dvar_dict['input_data']['reach_z']) - 1:
+        logging.warning('ALGO 5: Reach elevation data is missing, need more than 1 time to compute.')
+        algo5_set_error_state(sic4dvar_dict, i)
+        return (np.full(sic4dvar_dict['input_data']['reach_w'].shape, np.nan), np.full(sic4dvar_dict['input_data']['reach_z'].shape, np.nan))
+    if count_w >= len(sic4dvar_dict['input_data']['reach_w']) - 1:
+        logging.warning('ALGO 5: Reach width data is missing, need more than 1 time to compute.')
+        if use_projected_width:
+            logging.warning('ALGO 5: Using projected width to fill missing reach width data.')
+        else:
+            algo5_set_error_state(sic4dvar_dict, i)
+            return (np.full(sic4dvar_dict['input_data']['reach_w'].shape, np.nan), np.full(sic4dvar_dict['input_data']['reach_z'].shape, np.nan))
+    if use_projected_width:
+        logging.warning('ALGO 5: Using projected width.')
+        reach_w_projected = np.full(sic4dvar_dict['input_data']['reach_z'].shape, np.nan)
+        valid = sic4dvar_dict['input_data']['reach_z'] > -100000000000.0
+        reach_w_projected[valid] = np.interp(sic4dvar_dict['input_data']['reach_z'][valid], sic4dvar_dict['input_data']['reach_yr'], sic4dvar_dict['input_data']['reach_xr'])
+        reach_w = deepcopy(reach_w_projected)
+        masked_data = np.ma.masked_values(np.array(reach_w), value=-9999.0)
+        reach_w = masked_data
+    return (reach_w, reach_z)
 
 def launch_algo5(sic4dvar_dict, NBR_REACHES):
     for i in range(0, NBR_REACHES):
         if sic4dvar_dict['param_dict']['run_type'] == 'seq':
-            sic4dvar_dict['filtered_data']['reach_dA'] = optional_dA_fill(sic4dvar_dict, sic4dvar_dict['input_data']['reach_dA'], sic4dvar_dict['input_data']['reach_w'], sic4dvar_dict['input_data']['reach_z'], params)
-            sic4dvar_dict['reach_check'] = check_reach_data_SET(sic4dvar_dict)
+            sic4dvar_dict['input_data']['reach_w'], sic4dvar_dict['input_data']['reach_z'] = prepare_and_verify_reach_data(sic4dvar_dict, params.use_aggregated_node_data, params.use_projected_width)
+            if sic4dvar_dict['output']['valid_a5']:
+                sic4dvar_dict['input_data']['reach_dA_ini'] = deepcopy(sic4dvar_dict['input_data']['reach_dA'])
+                sic4dvar_dict['input_data']['reach_dA'] = optional_dA_fill(sic4dvar_dict, sic4dvar_dict['input_data']['reach_dA'], sic4dvar_dict['input_data']['reach_w'], sic4dvar_dict['input_data']['reach_z'], params)
+                sic4dvar_dict['reach_check'] = check_reach_data_SET(sic4dvar_dict)
+            else:
+                logging.warning('ALGO 5: No valid reach w or z. Cannot run algo5.')
+                sic4dvar_dict['reach_check'] = False
         if sic4dvar_dict['param_dict']['run_type'] == 'set':
             sic4dvar_dict['filtered_data']['reach_dA'][i] = optional_dA_fill(sic4dvar_dict, sic4dvar_dict['input_data']['reach_dA'][i], sic4dvar_dict['filtered_data']['reach_w'][i], sic4dvar_dict['filtered_data']['reach_z'][i], params)
             sic4dvar_dict['reach_check'] = check_reach_data_SET(sic4dvar_dict, i)
@@ -126,10 +190,10 @@ def launch_algo5(sic4dvar_dict, NBR_REACHES):
             logging.info('Running algo5 at REACH level to estimate discharge, A0 & n.')
             if sic4dvar_dict['param_dict']['run_type'] == 'seq':
                 t0_a5 = datetime.utcnow()
+                import matplotlib.pyplot as plt
                 sic4dvar_dict['output']['q_algo5'], sic4dvar_dict['algo5_results'] = algo5(sic4dvar_dict['output']['q_algo31_masked'], sic4dvar_dict['filtered_data']['reach_dA'], sic4dvar_dict['filtered_data']['reach_w'], sic4dvar_dict['filtered_data']['reach_s'], sic4dvar_dict['input_data']['reach_id'], equation='ManningLW')
                 t1_a5 = datetime.utcnow()
-                sic4dvar_dict['output']['q_algo5'] = algo5_fill_removed_data(sic4dvar_dict['output']['q_algo5'], sic4dvar_dict['removed_indices'], len(sic4dvar_dict['filtered_data']['node_z'][0]))
-                sic4dvar_dict['output']['q_algo5'] = build_output_q_masked_array(sic4dvar_dict, 'q_algo5')
+                sic4dvar_dict['output']['q_algo5'] = algo5_fill_removed_data(sic4dvar_dict['output']['q_algo5'], sic4dvar_dict['removed_indices'], len(sic4dvar_dict['input_data']['node_z'][0]))
             if sic4dvar_dict['param_dict']['run_type'] == 'set':
                 t0_a5 = datetime.utcnow()
                 sic4dvar_dict['output']['q_algo5'], sic4dvar_dict['algo5_results'] = algo5(sic4dvar_dict['output']['q_algo31_masked'], sic4dvar_dict['filtered_data']['reach_dA'][i], sic4dvar_dict['filtered_data']['reach_w'][i], sic4dvar_dict['filtered_data']['reach_s'][i], sic4dvar_dict['input_data']['reach_id'][i], equation='ManningLW')
@@ -138,10 +202,5 @@ def launch_algo5(sic4dvar_dict, NBR_REACHES):
                 sic4dvar_dict['output']['q_algo5'] = build_output_q_masked_array(sic4dvar_dict, 'q_algo5')
                 sic4dvar_dict['output']['q_algo5_all'] += [sic4dvar_dict['output']['q_algo5']]
         else:
-            sic4dvar_dict['output']['q_algo31'] = build_output_q_masked_array(sic4dvar_dict, 'q_algo31')
-            logging.warning('Not enough REACH data found to process reach.')
-            if sic4dvar_dict['param_dict']['run_type'] == 'seq':
-                sic4dvar_dict['output']['valid_a5'] = 0
-            if sic4dvar_dict['param_dict']['run_type'] == 'set':
-                sic4dvar_dict['output']['valid_a5_sets'][i] = 0
+            algo5_set_error_state(sic4dvar_dict, i)
     return sic4dvar_dict

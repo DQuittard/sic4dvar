@@ -14,7 +14,10 @@ import datetime
 def force_create_reach_times_from_nodes(swot_dict):
     test_t_array = np.ones(len(swot_dict['input_data']['node_t'][0]))
     for t in range(0, len(swot_dict['input_data']['node_t'][0])):
-        test_t_array[t] = swot_dict['input_data']['node_t'][:, t].mean()
+        for n in range(0, len(swot_dict['input_data']['node_t'])):
+            if check_na(swot_dict['input_data']['node_t'][n, t]):
+                swot_dict['input_data']['node_t'][n, t] = np.nan
+        test_t_array[t] = np.nanmean(swot_dict['input_data']['node_t'][:, t])
     return test_t_array
 
 def update_sic4dvar_dict(sic4dvar_dict, keep_indices):
@@ -50,15 +53,16 @@ def remove_duplicate_times(sic4dvar_dict):
 
 def prepare_params(input_data, flag_dict, param_dict, params):
     sic4dvar_dict = {'input_data': input_data, 'flag_dict': flag_dict, 'param_dict': param_dict, 'filtered_data': {}, 'output': {}, 'algo5_results': {}, 'bb': 9999.0, 'reliability': 'valid', 'stopped_stage': None}
+    sic4dvar_dict['input_data']['series_cv'] = None
     if sic4dvar_dict['param_dict']['run_type'] == 'seq' and params.force_create_reach_t:
         sic4dvar_dict['input_data']['reach_t'] = force_create_reach_times_from_nodes(sic4dvar_dict)
+        sic4dvar_dict = remove_duplicate_times(sic4dvar_dict)
     if sic4dvar_dict['param_dict']['run_type'] == 'set':
         test_t_array = np.ones(len(sic4dvar_dict['input_data']['node_t'][0]))
         for t in range(0, len(sic4dvar_dict['input_data']['node_t'][0])):
             test_t_array[t] = np.mean(sic4dvar_dict['input_data']['node_t'][:, t])
         sic4dvar_dict['input_data']['separate_reach_t'] = deepcopy(sic4dvar_dict['input_data']['reach_t'])
         sic4dvar_dict['input_data']['reach_t'] = deepcopy(test_t_array)
-    sic4dvar_dict = remove_duplicate_times(sic4dvar_dict)
     sic4dvar_dict['output']['valid'] = 1
     sic4dvar_dict['output']['valid_a5'] = 1
     sic4dvar_dict['output']['valid_a5_sets'] = []

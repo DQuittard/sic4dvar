@@ -18,6 +18,33 @@ def find_array_with_most_valid_values(arrays):
             max_valid_index = i
     return max_valid_index
 
+def fill_nan_with_neighbours(array):
+    from sic4dvar_functions.sic4dvar_helper_functions import check_na
+    for t in range(array.shape[1]):
+        for n in range(array.shape[0]):
+            if check_na(array[n, t]):
+                left_neighbour = None
+                right_neighbour = None
+                left_neighbour_index = None
+                right_neighbour_index = None
+                for n2 in range(n, 0, -1):
+                    if not check_na(array[n2, t]):
+                        left_neighbour_index = n2
+                        left_neighbour = array[n2, t]
+                        break
+                for n3 in range(n, array.shape[0]):
+                    if not check_na(array[n3, t]):
+                        right_neighbour_index = n3
+                        right_neighbour = array[n3, t]
+                        break
+                if (left_neighbour is not None and (not check_na(left_neighbour))) and (right_neighbour is not None and (not check_na(right_neighbour))):
+                    array[n, t] = (left_neighbour + right_neighbour) / 2
+                elif (left_neighbour is not None and (not check_na(left_neighbour))) and (right_neighbour is None or check_na(right_neighbour)):
+                    array[n, t] = left_neighbour
+                elif (right_neighbour is not None and (not check_na(right_neighbour))) and (left_neighbour is None or check_na(left_neighbour)):
+                    array[n, t] = right_neighbour
+    return array
+
 def create_filtered_arrays(sic4dvar_dict):
     if sic4dvar_dict['param_dict']['use_reach_slope']:
         data_is_useable_sl, observed_nodes_sl, list_to_keep_sl, removed_indices_sl = remove_unuseable_nodes(np.array([sic4dvar_dict['input_data']['reach_s']]), np.array([sic4dvar_dict['input_data']['reach_s']]))

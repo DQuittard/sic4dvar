@@ -72,6 +72,24 @@ def gnuplot_save_list(distance, times, elevation, width, location, zmin, spaces)
                     file.write('\n\n')
     file.close()
 
+def gnuplot_save_zm(zm_array_save, times, location, spaces):
+    all_data = []
+    file = open(location, 'w')
+    for zb_index in range(0, len(zm_array_save)):
+        x = np.arange(0, len(zm_array_save[zb_index]))
+        z = zm_array_save[zb_index]
+        t = np.repeat(zb_index, len(zm_array_save[zb_index]))
+        j = 0
+        for x1, z1, t1 in zip(x, z, t):
+            file.write('{} {} {} \n'.format(t1, x1, z1))
+            j += 1
+            if j == len(zm_array_save[zb_index]):
+                if spaces <= 1:
+                    file.write('\n')
+                if spaces >= 2:
+                    file.write('\n\n')
+    file.close()
+
 def gnuplot_save_q_pdf(values, location):
     all_data = []
     file = open(location, 'w')

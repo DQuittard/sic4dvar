@@ -50,7 +50,7 @@ from lib.lib_verif import check_na, reorder_ids_with_indices
 from sic4dvar_functions import sic4dvar_calculations as calc
 from sic4dvar_functions.sic4dvar_gnuplot_save import gnuplot_save_q
 from sic4dvar_functions.helpers.helpers_arrays import find_n_nearest, find_nearest, get_index_valid_data, get_mask_nan_across_arrays, masked_array_to_nan_array, nan_array_to_masked_array
-from sic4dvar_functions.v76 import K
+from sic4dvar_functions.Y786 import K
 from sic4dvar_functions.sic4dvar_calculations import verify_name_length
 from lib.lib_dates import seconds_to_time_str
 from sic4dvar_modules.sic4dvar_compute_slope_and_bathymetry import aggregate_node_bathy_to_reach, compute_wet_area
@@ -317,8 +317,13 @@ def global_large_deviations_removal_experimental(node_x, z, reach_t, times_debug
             b1 = b1 + node_x[index_valid[n]] * z[index_valid[n], t]
             b2 = b2 + z[index_valid[n], t]
     if total_valid_points >= 1:
-        c2 = (b1 * a21 - b2 * a11) / (a12 * a21 - a22 * a11)
-        c1 = (b1 - a12 * c2) / a11
+        if a12 * a21 - a22 * a11 == 0:
+            logging.warning('a12*a21-a22*a11 == 0, cannot compute c1 and c2. Setting c1 and c2 to 0.')
+            c1 = 0.0
+            c2 = 0.0
+        else:
+            c2 = (b1 * a21 - b2 * a11) / (a12 * a21 - a22 * a11)
+            c1 = (b1 - a12 * c2) / a11
     sigmp = 2.0
     sigmn = 2.0
     total_valid_points = 0.0
@@ -368,7 +373,7 @@ def global_large_deviations_removal_experimental(node_x, z, reach_t, times_debug
                     new_z[index_valid[n], t] = c1 * node_x[index_valid[n]] + c2 + (sigmn * iqr_value + median_value)
     if c1 > 0.01:
         reverse_order = True
-    return (new_z, reverse_order)
+    return (new_z, reverse_order, c1, c2)
 
 def compute_mean_var_from_2D_array(test_swot_z_obs, reach_t):
     z_mean = []
@@ -702,6 +707,7 @@ def get_sos_data(sos_file, reach_id, reach_t, param_dict):
         sos_dict['reach_qwbm'] = get_nc_variable_data(sos_dataset, 'model/mean_q')[index]
         sos_dict['quantiles'] = sos_dataset['model']['flow_duration_q'][index[0], :][0]
         sos_dict['quant_mean'], sos_dict['quant_var'] = calc.compute_mean_discharge_from_SoS_quantiles(sos_dict['quantiles'])
+        sos_dict['flow_duration_q'] = sos_dataset['model']['flow_duration_q'][index[0], :][0]
     else:
         logging.warning(f'Reach {reach_id} not found in SoS dataset.')
         masked_data = np.ma.masked_values(np.array([np.nan]), value=-9999.0)
@@ -709,6 +715,7 @@ def get_sos_data(sos_file, reach_id, reach_t, param_dict):
         sos_dict['reach_qwbm'] = masked_data
         sos_dict['quantiles'] = masked_data
         sos_dict['quant_mean'], sos_dict['quant_var'] = (np.nan, np.nan)
+        sos_dict['flow_duration_q'] = masked_data
     if sos_dict['quantiles'].mask.all():
         params.use_mean_for_bounds = True
     else:
@@ -716,6 +723,10 @@ def get_sos_data(sos_file, reach_id, reach_t, param_dict):
     if params.qsdev_activate or params.q_mean_computed:
         masked_data = np.ma.masked_values(np.array([float(sos_dict['quant_mean'])]), value=-9999.0)
         sos_dict['reach_qwbm'] = deepcopy(masked_data)
+    if params.use_flow_duration_q:
+        sos_dict['quant_mean'], sos_dict['quant_var'], sos_dict['quant_cv'] = compute_cv_from_flow_duration_curve(sos_dict['flow_duration_q'])
+        sos_dict['flow_duration_mean'] = sos_dict['quant_mean']
+        sos_dict['flow_duration_var'] = sos_dict['quant_var']
     if params.qsdev_activate:
         if params.qsdev_option == 0:
             masked_data2 = np.ma.masked_values(np.array([float(sos_dict['quant_var'])]), value=-9999.0)
@@ -881,6 +892,47 @@ def get_sos_data(sos_file, reach_id, reach_t, param_dict):
         logging.warning('Replacing QWBM with NaN for reach {} because QWBM <= 1 and FACC is not activated.'.format(reach_id))
     sos_dataset.close()
     return sos_dict
+
+def compute_cv_from_flow_duration_curve(flow_duration_q):
+    nq = len(flow_duration_q)
+    bin = 1.0 / float(nq)
+    quant = np.zeros(nq)
+    dquant = np.zeros(nq + 1)
+    for i in range(0, len(flow_duration_q)):
+        quant[i] = flow_duration_q[i]
+    dquant[0] = (3.0 * quant[0] - quant[1]) / 2.0
+    for i in range(0, nq - 1):
+        dquant[i + 1] = (quant[i] + quant[i + 1]) / 2.0
+    dquant[nq] = (3.0 * quant[nq - 1] - quant[nq - 2]) / 2.0
+    for i in range(0, nq):
+        quant[i] = dquant[nq - i]
+    dquant_max = 0.0
+    for i in range(0, nq - 1):
+        dquant[i] = bin / (quant[i + 1] - quant[i]) * (quant[i + 1] - quant[i])
+        if dquant[i] > dquant_max:
+            dquant_max = dquant[i]
+    ss = 0.0
+    ss1 = 0.0
+    for i in range(0, nq):
+        ss = ss + quant[i] * bin
+        ss1 = ss1 + bin
+    quant_mean0 = ss / ss1
+    ss = 0.0
+    ss1 = 0.0
+    for i in range(0, nq - 1):
+        ss = ss + (quant[i + 1] + quant[i]) / 2.0 * dquant[i]
+        ss1 = ss1 + dquant[i]
+    quant_mean = ss / ss1
+    ss = 0.0
+    ss1 = 0.0
+    for i in range(0, nq - 1):
+        ss = ss + ((quant[i + 1] + quant[i]) / 2.0 - quant_mean) ** 2 * dquant[i]
+        ss1 = ss1 + dquant[i]
+    quant_var = np.sqrt(ss / ss1)
+    Q_MEAN_GRD = quant_mean
+    Q_STD_GRD = quant_var
+    quant_CV = quant_var / quant_mean
+    return (Q_MEAN_GRD, Q_STD_GRD, quant_CV)
 
 def detect_suspicious_node_positions_from_sword(node_ids, dist_out=None, node_length=None, zscore_threshold=8.0):
     node_ids = np.asarray(node_ids)
@@ -1134,28 +1186,107 @@ def write_output(output_path, param_dict, reach_id, output_dict, reach_number=0,
     bb_var[:] = bb
     q_algo31, q_algo5 = write_discharge(out_nc, output_dict, reach_number, param_dict, fill_value)
     if params.optional_outputs:
-        if 'Zb_acc' in output_dict.keys():
-            Zb_acc = out_nc.createVariable('Zb_acc', 'f8', fill_value=fill_value)
-            Zb_acc[:] = output_dict['Zb_acc']
         if 'alph1' in output_dict.keys():
             alph1 = out_nc.createVariable('alph1', 'f8', fill_value=fill_value)
             alph1[:] = output_dict['alph1']
     Kmi_acc = out_nc.createVariable('K', 'f8', fill_value=fill_value)
     Kmi_acc.long_name = 'estimated friction coefficient'
     Kmi_acc.description = 'estimated friction coefficient (m^(1/3)/s)'
+    Zb_acc = out_nc.createVariable('Zb_acc', 'f8', fill_value=fill_value)
+    Zb_acc.long_name = 'estimated bed elevation'
+    Zb_acc.description = 'estimated bed elevation (m)'
     if 'Kmi_acc' in output_dict.keys():
         Kmi_acc[:] = output_dict['Kmi_acc']
-    if output_dict['stopped_stage'] != 'init':
+    else:
+        Kmi_acc[:] = np.nan
+    if 'Zb_acc' in output_dict.keys():
+        Zb_acc[:] = output_dict['Zb_acc']
+    else:
+        Zb_acc[:] = np.nan
+    logging.info(f'Kmi_acc: {Kmi_acc[:]}')
+    logging.info(f'Zb_acc: {Zb_acc[:]}')
+    mean_elevation_profile = out_nc.createVariable('mean_elevation_profile', 'f8', ('nx',), fill_value=fill_value)
+    mean_elevation_profile.long_name = 'mean elevation profile'
+    mean_elevation_profile.description = 'mean elevation profile (m)'
+    if 'mean_elevation_profile' in output_dict.keys():
+        mean_elevation_profile[:] = output_dict['mean_elevation_profile']
+    else:
+        node_size = nx = len(out_nc.dimensions['nx'])
+        mean_elevation_profile[:] = np.ones(node_size) * np.nan
+    logging.info(f'mean_elevation_profile: {mean_elevation_profile[:]}')
+    nb_pts_bathy_max = 10
+    out_nc.createDimension('nb_pts_reach', nb_pts_bathy_max)
+    reach_xr = out_nc.createVariable('reach_xr', 'f8', ('nb_pts_reach',), fill_value=fill_value)
+    reach_xr.long_name = 'reach width bathymetry'
+    reach_xr.description = 'reach width bathymetry (m)'
+    reach_yr = out_nc.createVariable('reach_yr', 'f8', ('nb_pts_reach',), fill_value=fill_value)
+    reach_yr.long_name = 'reach elevation bathymetry'
+    reach_yr.description = 'reach elevation bathymetry (m)'
+    if 'reach_xr' in output_dict.keys() and 'reach_yr' in output_dict.keys():
+        reach_xr_data = np.array(np.pad(output_dict['reach_xr'], (0, nb_pts_bathy_max - len(output_dict['reach_xr'])), constant_values=np.nan))
+        reach_yr_data = np.array(np.pad(output_dict['reach_yr'], (0, nb_pts_bathy_max - len(output_dict['reach_yr'])), constant_values=np.nan))
+        reach_xr[:] = reach_xr_data
+        reach_yr[:] = reach_yr_data
+    else:
+        reach_xr[:] = np.full(nb_pts_bathy_max, np.nan)
+        reach_yr[:] = np.full(nb_pts_bathy_max, np.nan)
+        logging.info(f'reach_xr: {reach_xr[:]}')
+        logging.info(f'reach_yr: {reach_yr[:]}')
+    SLOPEM1_constant = out_nc.createVariable('SLOPEM1_constant', 'f8', fill_value=fill_value)
+    SLOPEM1_constant.long_name = 'SLOPEM1 constant'
+    SLOPEM1_constant.description = 'SLOPEM1 constant (m)'
+    if 'SLOPEM1_constant' in output_dict.keys():
+        SLOPEM1_constant[:] = output_dict['SLOPEM1_constant'][0]
+    else:
+        SLOPEM1_constant[:] = np.nan
+    logging.info(f'SLOPEM1_constant: {SLOPEM1_constant[:]}')
+    if 'correlation_monthly' in output_dict.keys():
+        correlation_monthly = out_nc.createVariable('correlation_monthly', 'f8', fill_value=fill_value)
+        correlation_monthly.long_name = 'correlation monthly'
+        correlation_monthly.description = 'correlation monthly (-)'
+        if output_dict['correlation_monthly'] is not None:
+            correlation_monthly[:] = output_dict['correlation_monthly']
+        else:
+            correlation_monthly[:] = np.nan
+    if 'correlation_dynamic_slope' in output_dict.keys():
+        correlation_dynamic_slope = out_nc.createVariable('correlation_dynamic_slope', 'f8', fill_value=fill_value)
+        correlation_dynamic_slope.long_name = 'correlation dynamic slope'
+        correlation_dynamic_slope.description = 'correlation dynamic slope (-)'
+        if output_dict['correlation_dynamic_slope'] is not None:
+            correlation_dynamic_slope[:] = output_dict['correlation_dynamic_slope']
+        else:
+            correlation_dynamic_slope[:] = np.nan
+    out_nc.createDimension('n_quantiles', 3)
+    quantile_matrix = out_nc.createVariable('quantile_matrix', 'f8', ('nx', 'n_quantiles'), fill_value=fill_value)
+    quantile_matrix.long_name = 'quantile matrix of elevation profiles'
+    quantile_matrix.description = 'quantile matrix (m)'
+    if 'quantile_matrix' in output_dict:
+        quantile_matrix[:, :] = output_dict['quantile_matrix']
+    else:
+        quantile_matrix[:, :] = np.nan
+    logging.info(f'Quantile_matrix: {quantile_matrix[:, :]}')
+    prior_used = out_nc.createVariable('prior_used', 'f8', fill_value=fill_value)
+    prior_used.long_name = 'mean prior used'
+    prior_used.description = "mean prior used in sic4dvar's estimation of discharge"
+    if 'reach_qwbm' in output_dict.keys():
+        prior_used[:] = output_dict['reach_qwbm']
+    else:
+        prior_used[:] = np.nan
+    logging.info(f'prior_used: {prior_used[:]}')
+    stages_not_saving = ['init', 'input_data_check']
+    if output_dict['stopped_stage'] not in stages_not_saving:
         if param_dict['write_bathymetry']:
             write_bathymetry_data(out_nc, output_dict, fill_value, nb_pts_bathy_max=nb_pts_bathy_max)
         if param_dict['write_densification']:
             write_densification_groups(out_nc, output_dict, fill_value)
+    else:
+        logging.info(f'Skipping saving of bathymetry + densification for stopped stage: {output_dict['stopped_stage']}')
     if param_dict['gnuplot_saving']:
         reach_id = str(reach_id)
         output_dir = output_path.parent.joinpath('gnuplot_data', reach_id)
-        if not output_path.parent.is_dir():
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-        gnuplot_save_q(q_algo31[:], times_var[:], output_dir.parent.joinpath('qalgo31'))
+        if not output_dir.is_dir():
+            output_dir.mkdir(parents=True, exist_ok=True)
+        gnuplot_save_q(q_algo31[:], times_var[:], output_dir.joinpath('qalgo31'))
     out_nc.close()
 
 def write_algo5_params(out_nc, nc_dict, algo5_results, reach_number, output_dict, param_dict, fill_value):
@@ -1190,8 +1321,10 @@ def write_algo5_params(out_nc, nc_dict, algo5_results, reach_number, output_dict
                 nc_dict['A0'].assignValue(output_dict['Zb_acc'])
                 logging.warning('Kmi_acc or Zb_acc contains NaN')
             else:
-                nc_dict['n'].assignValue(output_dict['Kmi_acc'][-1])
-                nc_dict['A0'].assignValue(output_dict['Zb_acc'][-1])
+                kmi = output_dict['Kmi_acc']
+                zb = output_dict['Zb_acc']
+                nc_dict['n'].assignValue(kmi[-1] if isinstance(kmi, (list, tuple)) else kmi)
+                nc_dict['A0'].assignValue(zb[-1] if isinstance(zb, (list, tuple)) else zb)
                 logging.info('Temporarily writing Kmi_acc and Zb_acc to A0 and n.')
         else:
             logging.warning('Kmi_acc and Zb_acc not found in output_dict for temporary writing to A0 and n.')
@@ -1266,6 +1399,8 @@ def write_bathymetry_data(out_nc, output_dict, fill_value, nb_pts_bathy_max):
         z_bed_nc[:] = z_bed
     else:
         z_bed = np.full(len(output_dict['node_id']), np.nan)
+        z_bed_nc = out_nc.createVariable('z_bed', 'f8', 'nodes', fill_value=fill_value)
+        z_bed_nc[:] = z_bed
     A0 = compute_wet_area(width_data, elevation_data, z_bed)
     wet_area_nc = out_nc.createVariable('wet_area', 'f8', 'nodes', fill_value=fill_value)
     wet_area_nc[:] = A0
@@ -1803,3 +1938,89 @@ def aggregate_to_reach_level(node_wse, node_width, node_time, reach_length=None,
     if reach_length:
         reach_slope = (node_wse[-1, :] - node_wse[0, :]) / reach_length
     return (reach_wse, reach_width, time_in_seconds, reach_time_str, reach_slope)
+
+def make_mask_period(reach_time, list_months_to_use, plot=False, window_scale='months'):
+    ref = np.datetime64('2000-01-01')
+    swot_datetimes = ref + reach_time * np.timedelta64(1, 's')
+    mask = np.zeros(reach_time.shape, dtype=bool)
+    if window_scale == 'months':
+        for t, swot_datetime in enumerate(swot_datetimes):
+            month = swot_datetime.astype('datetime64[M]').astype(int) % 12 + 1
+            if month in list_months_to_use:
+                mask[t] = 1
+            else:
+                pass
+        sigma = 0.01
+        months = swot_datetimes.astype('datetime64[M]').astype(int) % 12 + 1
+        weights = np.zeros_like(months, dtype=float)
+        dist = np.abs(months - list_months_to_use[0])
+        dist = np.minimum(dist, 12 - dist)
+        weights = np.exp(-dist ** 2 / (2 * sigma ** 2))
+    elif window_scale == 'days':
+        year_begin = swot_datetimes.min().astype('datetime64[Y]').astype(int) + 1970
+        year_end = swot_datetimes.max().astype('datetime64[Y]').astype(int) + 1970
+        sigma = 16.0
+        if False:
+            swot_datetimes = []
+            for j in range(1, 3):
+                string_j = str(j)
+                if j < 10:
+                    string_j = f'0{j}'
+                for i in range(1, 30):
+                    string_i = str(i)
+                    if i < 10:
+                        string_i = f'0{i}'
+                    if j == 2 and i > 27:
+                        continue
+                    swot_datetimes.append(f'2024-{string_j}-{string_i}T13:31:53')
+            swot_datetimes = np.array(swot_datetimes, dtype='datetime64[s]')
+        dist = np.zeros_like(swot_datetimes, dtype=float)
+        for t in range(0, len(swot_datetimes)):
+            year_swot_datetime = swot_datetimes[t].astype('datetime64[Y]').astype(int) + 1970
+            if type(list_months_to_use[0]) == int and list_months_to_use[0] < 10:
+                list_months_to_use[0] = f'0{list_months_to_use[0]}'
+            ref_date = np.datetime64(f'{year_swot_datetime}-{list_months_to_use[0]}-15')
+            dist[t] = np.abs(ref_date - swot_datetimes[t]) / np.timedelta64(1, 'D')
+        weights = np.zeros_like(swot_datetimes, dtype=float)
+        weights = np.exp(-(dist / sigma) ** 6)
+    if plot:
+        print(swot_datetimes)
+        plt.plot(swot_datetimes, weights, 'bo')
+        plt.show()
+        plt.clf()
+    return weights
+
+def compute_mean_elevation_profile(node_z, reach_t):
+    mean_elevation_profile_array = np.ones(node_z.shape[0]) * np.nan
+    for n in range(0, node_z.shape[0]):
+        array = node_z[n, :]
+        dimension = reach_t
+        array_mean = 0.0
+        time_scaling = 0.0
+        stop = 0
+        from lib.lib_verif import check_na
+        for t in range(1, len(array)):
+            if not check_na(array[t - 1]) and (not check_na(dimension[t - 1])):
+                for t1 in range(t, len(array)):
+                    if not check_na(array[t1]) and (not check_na(dimension[t1])):
+                        array_mean += (array[t1] + array[t - 1]) / 2 * (dimension[t1] - dimension[t - 1])
+                        time_scaling += dimension[t1] - dimension[t - 1]
+                    elif t1 == len(array) - 1 and array_mean == 0.0 and (time_scaling == 0.0):
+                        stop = 1
+                        break
+                    else:
+                        continue
+        if stop == 1:
+            logging.error(f'Non integrable sequence for section {n}')
+            continue
+        if time_scaling == 0:
+            array_mean = np.nan
+        else:
+            array_mean = array_mean / time_scaling
+        if array_mean == 0:
+            array_mean = np.nan
+        mean_elevation_profile_array[n] = array_mean
+    if np.all(mean_elevation_profile_array == 0):
+        logging.error(f'Mean elevation profile is zero for all sections. Check.')
+    print('Mean profile array:', mean_elevation_profile_array)
+    return mean_elevation_profile_array

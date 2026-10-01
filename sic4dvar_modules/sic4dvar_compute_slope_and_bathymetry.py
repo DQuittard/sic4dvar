@@ -11,8 +11,8 @@ from copy import deepcopy
 import sic4dvar_params as params
 from sic4dvar_functions.sic4dvar_gnuplot_save import gnuplot_save, gnuplot_save_list, gnuplot_save_slope
 from sic4dvar_functions.sic4dvar_calculations import check_na, verify_name_length, compute_bb, fnc_APR, f_approx_sections_v6
-from sic4dvar_functions.v76 import K
-from sic4dvar_functions.cs.g515 import M
+from sic4dvar_functions.Y786 import K
+from sic4dvar_functions.cs.G546 import M
 try:
     from Confluence.input.input.extract.CalculateHWS import CalculateHWS
     from Confluence.input.input.extract.DomainHWS import DomainHWS
@@ -233,6 +233,12 @@ def bathymetry_computation(node_w, node_z, param_dict, params, input_data=[], fi
                 cs_i_w_low_bound0_array = np.ones(len(node_w[i])) * 10.0
                 results = M(node_w[i], node_z[i], max_iter=params.LSMX, cor_z=None, inter_behavior=True, inter_behavior_min_thr=params.def_float_atol, inter_behavior_max_thr=params.DX_max_in, min_change_v_thr=0.0001, first_sweep='forward', cs_float_atol=params.def_float_atol, number_of_nodes=len(node_z), plot=False, cs_i_w_low_bound0_array=cs_i_w_low_bound0_array)
                 results = f_approx_sections_v6(results[0], results[1], params.approx_section_params[0], params.approx_section_params[1], FSort=0)
+                if params.quantile_bathy_experiment:
+                    quantile_w_90 = np.quantile(node_w[i], 0.98)
+                    if results[0][-2] < quantile_w_90:
+                        results[0][-2] = quantile_w_90
+                    if results[0][-1] < quantile_w_90:
+                        results[0][-1] = quantile_w_90
             elif cs_method == 'Mike' and Confluence_HWS_method:
                 results, _ = mike_method(param_dict, filtered_data, node_z, node_w, i, slope, algo, input_data)
             node_xr += [results[0]]
@@ -240,6 +246,12 @@ def bathymetry_computation(node_w, node_z, param_dict, params, input_data=[], fi
             if param_dict['cs_plot_debug']:
                 results_pom = f_approx_sections_v6(node_w[i], node_z[i], params.approx_section_params[0], params.approx_section_params[1], params.approx_section_params[2])
                 results_igor = M(node_w[i], node_z[i], max_iter=params.LSMX, cor_z=None, inter_behavior=True, inter_behavior_min_thr=params.def_float_atol, inter_behavior_max_thr=params.DX_max_in, min_change_v_thr=0.0001, first_sweep='forward', cs_float_atol=params.def_float_atol, number_of_nodes=len(node_z), plot=False)
+                results_igor = f_approx_sections_v6(results_igor[0], results_igor[1], params.approx_section_params[0], params.approx_section_params[1], FSort=0)
+                if params.quantile_bathy_experiment:
+                    if results_igor[0][-2] < quantile_w_90:
+                        results_igor[0][-2] = quantile_w_90
+                    if results_igor[0][-1] < quantile_w_90:
+                        results_igor[0][-1] = quantile_w_90
                 if Confluence_HWS_method:
                     results_mike, dA_mike_2 = mike_method(param_dict, filtered_data, node_z, node_w, i, slope)
                     plt.plot(results_mike[0], results_mike[1], label='Mike')
@@ -278,6 +290,7 @@ def slope_modification(wse, slope):
 def compute_slope(sic4dvar_dict, params):
     SLOPEM1, sic4dvar_dict = slope_computation(sic4dvar_dict)
     SLOPEM1_orig = deepcopy(SLOPEM1)
+    sic4dvar_dict['output']['SLOPEM1_orig'] = SLOPEM1_orig
     length_reach = np.abs(sic4dvar_dict['filtered_data']['node_x'][-1] - sic4dvar_dict['filtered_data']['node_x'][0])
     if not params.static_slope:
         if np.mean(SLOPEM1) / length_reach < 0.0002:
@@ -291,44 +304,42 @@ def compute_slope(sic4dvar_dict, params):
     else:
         use_constant_slope = True
         use_smoothed_slope = False
+    if params.slope_smooth_wse_ranking:
+        array_to_use, SLOPEM1_reordered, increasing_index, wse_mean = slope_modification(sic4dvar_dict['filtered_data']['node_z'], SLOPEM1)
+        correlation = (array_to_use[-1] - array_to_use[0]) / array_to_use.shape[0]
+        behavior = 'increase'
+        inter_behavior = True
+    else:
+        correlation = sic4dvar_dict['cort_slope']
+        array_to_use = sic4dvar_dict['filtered_data']['reach_t']
+        SLOPEM1_reordered = SLOPEM1
+        behavior = ''
+        inter_behavior = False
+    SLOPEM1_2D = []
+    for n in range(0, len(sic4dvar_dict['filtered_data']['node_z'])):
+        SLOPEM1_2D.append(SLOPEM1_reordered)
+    SLOPEM1_2D = np.array(SLOPEM1_2D)
+    SLOPEM1_2D = K(dim=0, value0_array=SLOPEM1_2D, base0_array=array_to_use, max_iter=params.slope_smooth_max_iter, cor=correlation, always_run_first_iter=False, behavior=behavior, inter_behavior=inter_behavior, inter_behavior_min_thr=params.def_float_atol, inter_behavior_max_thr=params.DX_max_in, check_behavior='', min_change_v_thr=0.0001, plot=False, plot_title='Relaxation sweep in time SLOPEM1 without Interchange', clean_run=True, debug_mode=False)
+    tmp = deepcopy(SLOPEM1)
+    SLOPEM1_smoothed = SLOPEM1_2D[0]
+    if params.slope_smooth_wse_ranking:
+        tmp_slope = []
+        for t in range(0, len(SLOPEM1_smoothed)):
+            index = np.where(increasing_index == t)[0][0]
+            tmp_slope.append(SLOPEM1_smoothed[index])
+        SLOPEM1_smoothed = np.array(tmp_slope)
+    if sic4dvar_dict['param_dict']['gnuplot_saving']:
+        reach_id = verify_name_length(str(sic4dvar_dict['input_data']['reach_id']))
+        output_path = sic4dvar_dict['param_dict']['output_dir'].joinpath('gnuplot_data', reach_id)
+        if not Path(output_path).is_dir():
+            Path(output_path).mkdir(parents=True, exist_ok=True)
+        times2 = np.around(sic4dvar_dict['filtered_data']['reach_t'] / 3600 / 24)
+        times2 = times2 - min(times2)
+        gnuplot_save_slope(SLOPEM1_orig, times2, output_path.joinpath('slope_orig'))
+        gnuplot_save_slope(SLOPEM1_smoothed, times2, output_path.joinpath('slope_smooth'))
     if use_smoothed_slope:
-        if params.slope_smooth_wse_ranking:
-            array_to_use, SLOPEM1_reordered, increasing_index, wse_mean = slope_modification(sic4dvar_dict['filtered_data']['node_z'], SLOPEM1)
-            correlation = (array_to_use[-1] - array_to_use[0]) / array_to_use.shape[0]
-            behavior = 'increase'
-            inter_behavior = True
-        else:
-            correlation = sic4dvar_dict['cort_slope']
-            array_to_use = sic4dvar_dict['filtered_data']['reach_t']
-            SLOPEM1_reordered = SLOPEM1
-            behavior = ''
-            inter_behavior = False
-        SLOPEM1_2D = []
-        for n in range(0, len(sic4dvar_dict['filtered_data']['node_z'])):
-            SLOPEM1_2D.append(SLOPEM1_reordered)
-        SLOPEM1_2D = np.array(SLOPEM1_2D)
-        SLOPEM1_2D = K(dim=0, value0_array=SLOPEM1_2D, base0_array=array_to_use, max_iter=params.slope_smooth_max_iter, cor=correlation, always_run_first_iter=False, behavior=behavior, inter_behavior=inter_behavior, inter_behavior_min_thr=params.def_float_atol, inter_behavior_max_thr=params.DX_max_in, check_behavior='', min_change_v_thr=0.0001, plot=False, plot_title='Relaxation sweep in time SLOPEM1 without Interchange', clean_run=True, debug_mode=False)
-        tmp = deepcopy(SLOPEM1)
-        print('SLOPEM1 before:', SLOPEM1)
-        SLOPEM1 = SLOPEM1_2D[0]
-        print('SLOPEM1 after:', SLOPEM1)
-        print('diff:', SLOPEM1 - tmp, 'mean:', np.mean(SLOPEM1))
-        if params.slope_smooth_wse_ranking:
-            tmp_slope = []
-            for t in range(0, len(SLOPEM1)):
-                index = np.where(increasing_index == t)[0][0]
-                tmp_slope.append(SLOPEM1[index])
-            SLOPEM1 = np.array(tmp_slope)
-        if sic4dvar_dict['param_dict']['gnuplot_saving']:
-            reach_id = verify_name_length(str(sic4dvar_dict['input_data']['reach_id']))
-            output_path = sic4dvar_dict['param_dict']['output_dir'].joinpath('gnuplot_data', reach_id)
-            if not Path(output_path).is_dir():
-                Path(output_path).mkdir(parents=True, exist_ok=True)
-            times2 = np.around(sic4dvar_dict['filtered_data']['reach_t'] / 3600 / 24)
-            times2 = times2 - min(times2)
-            gnuplot_save_slope(SLOPEM1_orig, times2, output_path.joinpath('slope_orig'))
-            gnuplot_save_slope(SLOPEM1, times2, output_path.joinpath('slope_smooth'))
-    sic4dvar_dict['output']['SLOPEM1'] = SLOPEM1
+        sic4dvar_dict['output']['SLOPEM1'] = SLOPEM1_smoothed
+    sic4dvar_dict['output']['SLOPEM1_smoothed'] = deepcopy(SLOPEM1_smoothed)
     if use_constant_slope:
         SLOPEM1_mean = 0.0
         time_scaling = 0.0
@@ -345,6 +356,7 @@ def compute_slope(sic4dvar_dict, params):
             times2 = np.around(sic4dvar_dict['filtered_data']['reach_t'] / 3600 / 24)
             times2 = times2 - min(times2)
             gnuplot_save_slope(SLOPEM1, times2, output_path.joinpath('slope_constant'))
+        sic4dvar_dict['output']['SLOPEM1_constant'] = SLOPEM1
     if not sic4dvar_dict['output']['valid']:
         sic4dvar_dict['output']['valid'] = 0
         logging.warning('Slope not valid.')
@@ -353,6 +365,22 @@ def compute_slope(sic4dvar_dict, params):
 
 def compute_bathymetry(sic4dvar_dict, params, SLOPEM1):
     sic4dvar_dict['input_data']['node_xr'], sic4dvar_dict['input_data']['node_yr'], _ = bathymetry_computation(node_w=sic4dvar_dict['filtered_data']['node_w'], node_z=sic4dvar_dict['filtered_data']['node_z'], param_dict=sic4dvar_dict['param_dict'], params=params, input_data=sic4dvar_dict['input_data'], filtered_data=sic4dvar_dict['filtered_data'], slope=SLOPEM1)
+    count_w = 0
+    count_z = 0
+    for t in range(0, len(sic4dvar_dict['input_data']['reach_w'])):
+        if check_na(sic4dvar_dict['input_data']['reach_w'][t]):
+            count_w += 1
+        if check_na(sic4dvar_dict['input_data']['reach_z'][t]):
+            count_z += 1
+    if count_w >= len(sic4dvar_dict['input_data']['reach_w']) - 1 or count_z >= len(sic4dvar_dict['input_data']['reach_z']) - 1:
+        logging.warning("All values in reach_w or reach_z are NA. Can't compute reach bathymetry.")
+        sic4dvar_dict['input_data']['reach_xr'] = np.array(np.ones(10) * np.nan)
+        sic4dvar_dict['input_data']['reach_yr'] = np.array(np.ones(10) * np.nan)
+    else:
+        logging.info('Computing reach bathymetry.')
+        sic4dvar_dict['input_data']['reach_xr'], sic4dvar_dict['input_data']['reach_yr'], _ = bathymetry_computation(node_w=[sic4dvar_dict['input_data']['reach_w']], node_z=[sic4dvar_dict['input_data']['reach_z']], param_dict=sic4dvar_dict['param_dict'], params=params, input_data=sic4dvar_dict['input_data'], filtered_data=sic4dvar_dict['filtered_data'], slope=SLOPEM1)
+        sic4dvar_dict['input_data']['reach_xr'] = sic4dvar_dict['input_data']['reach_xr'][0]
+        sic4dvar_dict['input_data']['reach_yr'] = sic4dvar_dict['input_data']['reach_yr'][0]
     node_x = sic4dvar_dict['input_data']['node_x']
     reach_id = str(sic4dvar_dict['input_data']['reach_id'])
     reach_id = verify_name_length(reach_id)
@@ -399,7 +427,7 @@ def compute_bathymetry(sic4dvar_dict, params, SLOPEM1):
         tmp40.append(sic4dvar_dict['input_data']['node_xr'][n][sic4dvar_dict['input_data']['node_xr'][n].argmin()])
         tmp44.append(sic4dvar_dict['input_data']['node_xr'][n].argmin())
     apr_array = {'node_w_simp': sic4dvar_dict['input_data']['node_w_simp'], 'node_a': sic4dvar_dict['input_data']['node_a'], 'node_p': sic4dvar_dict['input_data']['node_p'], 'node_r': sic4dvar_dict['input_data']['node_r']}
-    bathymetry_array = {'node_xr': sic4dvar_dict['input_data']['node_xr'], 'node_yr': sic4dvar_dict['input_data']['node_yr']}
+    bathymetry_array = {'node_xr': sic4dvar_dict['input_data']['node_xr'], 'node_yr': sic4dvar_dict['input_data']['node_yr'], 'reach_xr': sic4dvar_dict['input_data']['reach_xr'], 'reach_yr': sic4dvar_dict['input_data']['reach_yr']}
     return (sic4dvar_dict, bathymetry_array, apr_array)
 
 def compute_relative_elevation(elev_2D):
@@ -533,7 +561,7 @@ def aggregate_node_bathy_to_reach(elev_2D, width_2D, option='2sigma', nb_points=
         width_sorted = width_valid[sort_idx]
         width_interp[n, :] = np.interp(reach_rel_elev, elev_sorted, width_sorted)
     reach_width = np.nanmean(width_interp, axis=0)
-    reach_abs_elev = reach_rel_elev + np.nanmean(reach_rel_elev) + reach_elev_abs
+    reach_abs_elev = reach_elev_abs + reach_rel_elev - np.nanmean(reach_rel_elev)
     return (reach_width, reach_rel_elev, reach_abs_elev)
 
 def compute_z_bed(node_w_simp, node_z, node_xr, node_yr, Zb_acc):

@@ -201,7 +201,7 @@ def tmp_check_datetime_or_daynum(y_true_dim):
         y_true_dim = np.array(converted_days, dtype=float)
     return y_true_dim
 
-def run_indicators(reach_id='99999999999', y_true_val=None, y_true_dim=None, y_pred_val=None, y_pred_dim=None, min_dates=10, indicators_list=None, lite_run=True, other_sources={}):
+def run_indicators(reach_id='99999999999', y_true_val=None, y_true_dim=None, y_pred_val=None, y_pred_dim=None, min_dates=10, indicators_list=None, lite_run=True, other_sources={}, return_preprocessed_df=False):
     input_data = {}
     input_data['station_q'] = y_true_val
     y_true_dim = tmp_check_datetime_or_daynum(y_true_dim)
@@ -213,13 +213,13 @@ def run_indicators(reach_id='99999999999', y_true_val=None, y_true_dim=None, y_p
     input_data['reach_slope'] = [0.0, 0.0]
     if other_sources != {}:
         input_data.update(other_sources)
-    print(input_data)
-    indicators = compute_indicators(input_data, y_pred_val, y_pred_dim, indicators_experimental_computation=True, force_specific_dates=False, reach_id=reach_id, ML_daily_comparison_experimental=False, min_dates=10, indicators_list=indicators_list, lite_run=lite_run)
+    indicators = compute_indicators(input_data, y_pred_val, y_pred_dim, indicators_experimental_computation=True, force_specific_dates=False, reach_id=reach_id, ML_daily_comparison_experimental=False, min_dates=10, indicators_list=indicators_list, lite_run=lite_run, return_preprocessed_df=return_preprocessed_df)
     return indicators
 
 def clean_invalid_values_for_input(discharge, time_instants):
     discharge = np.ma.asarray(discharge).ravel()
     time_instants = np.ma.asarray(time_instants).ravel()
+    minimum_value = 0.0
     if discharge.size != time_instants.size:
         n_common = min(discharge.size, time_instants.size)
         logging.warning('Mismatched input sizes for cleaning (discharge=%s, time=%s). Truncating to %s.', discharge.size, time_instants.size, n_common)
@@ -229,7 +229,7 @@ def clean_invalid_values_for_input(discharge, time_instants):
     time_values = np.asarray(time_instants.filled(np.nan), dtype=float)
     discharge_mask = np.asarray(np.ma.getmaskarray(discharge), dtype=bool)
     time_mask = np.asarray(np.ma.getmaskarray(time_instants), dtype=bool)
-    valid_mask = np.isfinite(discharge_values) & np.isfinite(time_values) & (discharge_values > -100000000000.0) & (time_values > -100000000000.0) & ~discharge_mask & ~time_mask
+    valid_mask = np.isfinite(discharge_values) & np.isfinite(time_values) & (discharge_values > minimum_value) & (time_values > minimum_value) & ~discharge_mask & ~time_mask
     return (discharge_values[valid_mask], time_values[valid_mask])
 
 def clean_invalid_values_for_input_old(discharge, time_instants):
@@ -259,7 +259,6 @@ def clean_invalid_values_for_input_old(discharge, time_instants):
     return (discharge[valid_idx], time_instants[valid_idx])
 
 def make_dataframe_from_input(discharge, time_instants, prefix_string, reference_date, data_date):
-    print('DISCHARGE:', discharge, 'TIME INSTANTS:', time_instants)
     discharge, time_instants = clean_invalid_values_for_input(discharge, time_instants)
     df = pd.DataFrame({f'{prefix_string}_q': discharge, f'{prefix_string}_times': time_instants})
     df[f'{prefix_string}_dates_string'] = daynum_to_date(df[f'{prefix_string}_times'], reference_date)
@@ -272,20 +271,41 @@ def make_dataframe_from_input(discharge, time_instants, prefix_string, reference
 
 def create_time_system(algo_df, station_df, ml_df, times_algo, input_data):
     from sic4dvar_functions.sic4dvar_helper_functions import interp_pdf_tables
+    from copy import deepcopy
     q_ref = []
     q_est = []
     t_ref = []
     q_ref_ML = []
-    time_system = times_algo
+    time_system = deepcopy(times_algo)
     if len(time_system) < 2:
         logging.info("Time system size < 2, can't compute integrated estimated mean.")
         return ([], [], [], [])
     for t in range(0, len(time_system)):
+        value_t = time_system.iloc[t]
+        index_algo_to_use = np.where(algo_df['algo_times_in_days'] == value_t)[0]
         q_ref.append(interp_pdf_tables(len(station_df['station_q']) - 1, time_system.iloc[t], np.array(station_df['station_times_in_days']), np.array(station_df['station_q'])))
         if 'q_ML' in input_data.keys():
             q_ref_ML.append(interp_pdf_tables(len(ml_df['ML_q']) - 1, time_system.iloc[t], np.array(ml_df['ML_times_in_days']), np.array(ml_df['ML_q'])))
-        q_est.append(algo_df['algo_q'][t])
+        q_est.append(algo_df['algo_q'].iloc[index_algo_to_use].values[0])
         t_ref.append(time_system.iloc[t])
+    if False:
+        q_est2 = []
+        t_ref2 = []
+        for t in range(0, len(time_system)):
+            t_ref2.append(time_system.iloc[t])
+        time_system = deepcopy(station_df['station_times_in_days'])
+        t_ref3 = []
+        q_ref2 = []
+        for t in range(0, len(time_system)):
+            q_ref2.append(station_df['station_q'].iloc[t])
+            q_est2.append(interp_pdf_tables(len(algo_df['algo_q']) - 1, time_system.iloc[t], np.array(algo_df['algo_times_in_days']), np.array(algo_df['algo_q'])))
+            t_ref3.append(time_system.iloc[t])
+        from matplotlib import pyplot as plt
+        plt.plot(t_ref3, q_est2, label='Predicted Q')
+        plt.plot(t_ref3, q_ref2, label='Source Q')
+        plt.legend()
+        plt.savefig('/mnt/DATA/worksync/sic_tools/stage3.6_timesystem_for_each.png')
+        plt.clf()
     if np.array(q_ref_ML).size == 0:
         q_ref_ML = [-9999.0] * len(q_ref)
     return (q_ref, q_est, t_ref, q_ref_ML)
@@ -336,7 +356,7 @@ def integrated_mean(array, dimension):
         array_mean += (array[j] + array[j - 1]) / 2 * (dimension[j] - dimension[j - 1])
         time_scaling += dimension[j] - dimension[j - 1]
     if time_scaling == 0:
-        raise ValueError(f'time_scaling is zero !!')
+        logging.error(f'time_scaling is zero in integrated mean !!')
     array_mean = array_mean / time_scaling
     return array_mean
 
@@ -354,6 +374,7 @@ def create_additional_dict(input_dict, prefix_string, data_df, input_value, inpu
     input_dict[f'{prefix_string}']['mean_value'] = input_value
     input_dict[f'{prefix_string}']['var_value'] = variance
     input_dict[f'{prefix_string}']['array_value'] = input_value_array
+    input_dict[f'{prefix_string}']['cv'] = input_value / variance if variance != 0 else np.nan
     input_dict[f'{prefix_string}']['bias'] = input_value - Q_ref_mean
     input_dict[f'{prefix_string}']['nbias'] = (input_value - Q_ref_mean) / Q_ref_mean
     input_dict[f'{prefix_string}']['absnbias'] = np.abs(input_value - Q_ref_mean) / Q_ref_mean
@@ -365,13 +386,15 @@ def interpolated_pearson(x, x_mean, y, y_mean, t, times):
     pearson_d2 = ((y[t] - y_mean) ** 2 + (y[t - 1] - y_mean) ** 2) / 2 * (times[t] - times[t - 1])
     return (pearson_nominator, pearson_d1, pearson_d2)
 
-def compute_indicators(input_data, algo_q, algo_t, indicators_experimental_computation, force_specific_dates, reach_id, ML_daily_comparison_experimental=False, min_dates=10, indicators_list=None, lite_run=True):
+def compute_indicators(input_data, algo_q, algo_t, indicators_experimental_computation, force_specific_dates, reach_id, ML_daily_comparison_experimental=False, min_dates=10, indicators_list=None, lite_run=True, return_preprocessed_df=False):
     if indicators_list is None:
-        indicators_list = ['mean_value', 'bias', 'nbias', 'absnbias', 'cosine_similarity', 'nrmse', 'nrmse2', 'log_cosh', 'tweedie_gamma', 'KGE_nrmse', 'KGE_cosh', 'KGE', 'pearson', 'spearman']
+        indicators_list = ['mean_value', 'bias', 'nbias', 'absnbias', 'cosine_similarity', 'nrmse', 'nrmse2', 'log_cosh', 'tweedie_gamma', 'KGE_nrmse', 'KGE_cosh', 'KGE', 'pearson', 'spearman', 'cv', 'relative_error']
     if 'station_q' in input_data.keys() and 'station_date' in input_data.keys():
         logging.info('Indicators computation')
         if True:
             data_df = preprocess_input_data(input_data, algo_q, algo_t)
+            if return_preprocessed_df:
+                return data_df
             if not isinstance(data_df, pd.DataFrame) or data_df.empty:
                 logging.info(f'No valid overlap after preprocessing for reach {reach_id}; skipping indicators.')
                 return {}
@@ -392,19 +415,19 @@ def compute_indicators(input_data, algo_q, algo_t, indicators_experimental_compu
                     pass
             Q_est_mean = integrated_mean(np.array(data_df['algo_q']), np.array(data_df['time_in_days']))
             Q_est_var = integrated_variance(np.array(data_df['algo_q']), np.array(data_df['time_in_days']), Q_est_mean)
-            sic_coeff_variation = Q_est_var / Q_est_mean
             Q_ref_mean = integrated_mean(np.array(data_df['station_q']), np.array(data_df['time_in_days']))
             Q_ref_var = integrated_variance(np.array(data_df['station_q']), np.array(data_df['time_in_days']), Q_ref_mean)
             if Q_ref_var < 1e-09:
                 logging.warning('Variance is very small, removing reach from analysis for indicators computation. REACH_ID: ' + str(reach_id))
                 return {}
-            station_coeff_variation = Q_ref_var / Q_ref_mean
             if 'q_ML' in input_data.keys():
                 Q_ML_mean = integrated_mean(np.array(data_df['ML_q']), np.array(data_df['time_in_days']))
                 Q_ML_var = integrated_variance(np.array(data_df['ML_q']), np.array(data_df['time_in_days']), Q_ML_mean)
                 ML_coeff_variation = Q_ML_var / Q_ML_mean
             additional_indicators_dict = {}
             additional_indicators_dict = create_additional_dict(additional_indicators_dict, 'algo', data_df, Q_est_mean, data_df['algo_q'], Q_ref_mean, variance=Q_est_var)
+            if not lite_run:
+                additional_indicators_dict = create_additional_dict(additional_indicators_dict, 'truth', data_df, Q_ref_mean, data_df['station_q'], Q_ref_mean, variance=Q_ref_var)
             if 'qwbm_prior' in list(input_data.keys()):
                 additional_indicators_dict = create_additional_dict(additional_indicators_dict, 'QWBM_prior', data_df, input_data['qwbm_prior'], np.full(len(data_df['station_q']), input_data['qwbm_prior']), Q_ref_mean)
             if 'grades_prior' in list(input_data.keys()):
@@ -465,6 +488,8 @@ def compute_indicators(input_data, algo_q, algo_t, indicators_experimental_compu
             data_df = sic4dvar_df.merge(station_df, how='inner', left_on='sic4dvar_date', right_on='station_date')
         if len(data_df) >= min_dates:
             indicators = {'reach_id': str(reach_id), 'nb_dates': len(data_df)}
+            if not lite_run:
+                indicators['relative_error'] = (additional_indicators_dict['algo']['cv'] - additional_indicators_dict['truth']['cv']) / additional_indicators_dict['truth']['cv'] if additional_indicators_dict['truth']['cv'] != 0 else np.nan
             if indicators_experimental_computation:
                 if np.array(x).size > 0:
                     indicators['x0'] = x[0]
@@ -473,6 +498,7 @@ def compute_indicators(input_data, algo_q, algo_t, indicators_experimental_compu
                     for indicator in indicators_list:
                         if indicator in value.keys():
                             indicators[f'{key}_{indicator}'] = value[indicator]
+                    indicators[f'{key}_relative_error'] = indicators['relative_error']
                 indicators['data_df'] = data_df
             else:
                 pass

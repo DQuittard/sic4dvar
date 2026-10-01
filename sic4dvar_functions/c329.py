@@ -33,7 +33,7 @@ from sic4dvar_classes.sic4dvar_0_defaults import SIC4DVarLowCostDefaults as i
 from sic4dvar_functions.helpers.helpers_arrays import arrays_rmv_nan_pair as j, arrays_check_increase as Z, iterable_to_flattened_array as a, array_fix_next_same as k, arrays_bounds as J
 from sic4dvar_functions.helpers.helpers_generic import pairwise as t
 from sic4dvar_functions.helpers.helpers_plot import helper_plot_lines as u
-from sic4dvar_functions.j983 import D as r
+from sic4dvar_functions.T14 import D as r
 
 def v(width_array, elevation_array, comp_area=D, comp_per=D, check_nan=D, sort=D, check_increasing=D):
     G = comp_per

@@ -13,9 +13,9 @@ C = AssertionError
 B = False
 import copy as M, warnings as N, numpy as A
 from sic4dvar_classes.sic4dvar_0_defaults import SIC4DVarLowCostDefaults as D
-from sic4dvar_functions.l332 import b as x
+from sic4dvar_functions.c329 import b as x
 from sic4dvar_functions.helpers.helpers_arrays import masked_array_to_nan_array as O, nan_array_to_masked_array as G, find_nearest as T
-from sic4dvar_functions.j983 import D as U
+from sic4dvar_functions.T14 import D as U
 from pathlib import Path
 from sic4dvar_functions.io.reader_swot_obs import get_vars_from_swot_nc as R
 

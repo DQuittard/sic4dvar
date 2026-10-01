@@ -77,6 +77,12 @@ def algo5(_q_ref, _dA, _w, _s, reach_id, equations_dict=equations_dict, equation
             logging.debug(f'BOUNDS: {bnds[0]}')
             new_lb = [bnds[0][0], bnds[1][0]]
             new_ub = [bnds[0][1], bnds[1][1]]
+            residuals = calc.objective_internal_data_Q_any(initial_guesses, *args)
+            print(_q_ref, _dA, _w, _s)
+            if not np.all(np.isfinite(residuals)):
+                logging.error(f'Non-finite residuals: {residuals}')
+                logging.error(f'Initial guesses: {initial_guesses}')
+                raise ValueError('Initial residuals are not finite')
             results = sciop.least_squares(calc.objective_internal_data_Q_any, x0=initial_guesses, bounds=(new_lb, new_ub), args=args)
         '\n            if equation == "ManningLW":\n                #Q_Manning_LW (originally used in algo5)\n                results = sciop.differential_evolution(calc.objective_internal_data_Q_Manning_LW, bounds=bnds,                 args=args, polish=True, strategy="best1bin")\n\n            if equation == "DarcyW":\n                #Q_DarcyW\n                results = sciop.differential_evolution(calc.objective_internal_data_Q_DarcyW, bounds=bnds,                 args=data_grouped_tuple, polish=True, strategy="best1bin")\n\n            if equation == "ManningVK":\n                #Q_ManningVK\n                results = sciop.differential_evolution(calc.objective_internal_data_Q_Manning_VK, bounds=bnds,                 args=data_grouped_tuple, polish=True, strategy="best1bin")\n            \n            if equation == "ManningLW" or equation == "DarcyW":\n                a0, n = results.x[0], results.x[1]\n\n            elif equation == "ManningVK":\n                a0, a, b = results.x[0], results.x[1], results.x[2]\n                logging.debug(f"A: {a}, B: {b}")\n            '
         results_dict = {}

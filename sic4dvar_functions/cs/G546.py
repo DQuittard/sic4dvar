@@ -6,7 +6,7 @@ g = list
 f = len
 e = range
 O = ''
-K = True
+J = True
 F = None
 D = False
 import copy as G
@@ -16,15 +16,15 @@ from sic4dvar_classes.sic4dvar_0_defaults import sic_def as B
 from sic4dvar_functions.helpers.helpers_arrays import masked_array_to_nan_array as Z, arrays_bounds as S, arrays_check_increase as A6
 from sic4dvar_functions.helpers.helpers_generic import pairwise as A7
 from sic4dvar_functions.helpers.helpers_plot import helper_plot_lines as A8
-from sic4dvar_functions.j983 import D as s
-from sic4dvar_functions.g589 import u as t
+from sic4dvar_functions.T14 import D as s
+from sic4dvar_functions.F446 import u as t
 
-def M(cs_i_w0_array, cs_i_z0_array, max_iter, cor_z=F, inter_behavior=K, inter_behavior_min_thr=B.def_lsm_w_min_dw, inter_behavior_max_thr=A.inf, min_change_v_thr=B.def_lsm_w_min_dw, cs_i_w_low_bound0_array=F, cs_i_w_up_bound0_array=F, cs_i_w_ref0_array=F, first_sweep=B.def_lsm_w_first_sweep, remove_bias_in_loop=B.def_lsm_w_rem_bias_in_loop, cs_float_atol=B.def_cs_float_atol, number_of_nodes=0, plot=K, plot_title=O, clean_run=D, debug_mode=D):
+def M(cs_i_w0_array, cs_i_z0_array, max_iter, cor_z=F, inter_behavior=J, inter_behavior_min_thr=B.def_lsm_w_min_dw, inter_behavior_max_thr=A.inf, min_change_v_thr=B.def_lsm_w_min_dw, cs_i_w_low_bound0_array=F, cs_i_w_up_bound0_array=F, cs_i_w_ref0_array=F, first_sweep=B.def_lsm_w_first_sweep, remove_bias_in_loop=B.def_lsm_w_rem_bias_in_loop, cs_float_atol=B.def_cs_float_atol, number_of_nodes=0, plot=J, plot_title=O, clean_run=D, debug_mode=D):
     R = number_of_nodes
     Q = cs_i_w_ref0_array
     N = debug_mode
     M = clean_run
-    J = cor_z
+    K = cor_z
     if N:
         M = D
     if M:
@@ -59,15 +59,15 @@ def M(cs_i_w0_array, cs_i_z0_array, max_iter, cor_z=F, inter_behavior=K, inter_b
     E = E[H]
     G = G[H]
     B = B[H]
-    if J is F or A.isnan(J):
+    if K is F or A.isnan(K):
         R = B.size
-        J = (B[-1] - B[0]) / R
-    C, E, G, T = t(value0_array=C, base0_array=B, max_iter=max_iter, cor=J, min_change_v_thr=min_change_v_thr, behavior=u, inter_behavior=inter_behavior, inter_behavior_min_thr=inter_behavior_min_thr, inter_behavior_max_thr=inter_behavior_max_thr, check_behavior='force', value_low_bound0_array=E, value_up_bound0_array=G, value_ref0_array=L, first_sweep=first_sweep, remove_bias_in_loop=remove_bias_in_loop, always_smooth=K, inter_only=D, float_atol=cs_float_atol, plot=plot, plot_title=plot_title, clean_run=M, debug_mode=N)
+        K = (B[-1] - B[0]) / R
+    C, E, G, T = t(value0_array=C, base0_array=B, max_iter=max_iter, cor=K, min_change_v_thr=min_change_v_thr, behavior=u, inter_behavior=inter_behavior, inter_behavior_min_thr=inter_behavior_min_thr, inter_behavior_max_thr=inter_behavior_max_thr, check_behavior='force', value_low_bound0_array=E, value_up_bound0_array=G, value_ref0_array=L, first_sweep=first_sweep, remove_bias_in_loop=remove_bias_in_loop, always_smooth=J, inter_only=D, float_atol=cs_float_atol, plot=plot, plot_title=plot_title, clean_run=M, debug_mode=N, bias_correction_type=J)
     E = A.fmin(E, C)
     G = A.fmax(G, C)
     return (C, B, E, G)
 
-def R(w0_array, z0_array, cor_z=F, extrapolate_min=D, extrapolate_max=D, first_sweep=B.def_lsm_w_first_sweep, remove_bias_in_loop=B.def_lsm_w_rem_bias_in_loop, cs_float_atol=B.def_cs_float_atol, plot=K, plot_title=O, plot_colormap='YlOrBr', clean_run=D):
+def R(w0_array, z0_array, cor_z=F, extrapolate_min=D, extrapolate_max=D, first_sweep=B.def_lsm_w_first_sweep, remove_bias_in_loop=B.def_lsm_w_rem_bias_in_loop, cs_float_atol=B.def_cs_float_atol, plot=J, plot_title=O, plot_colormap='YlOrBr', clean_run=D):
     A4 = 'linear'
     A3 = 'yellowgreen'
     z = extrapolate_max
@@ -146,15 +146,15 @@ def R(w0_array, z0_array, cor_z=F, extrapolate_min=D, extrapolate_max=D, first_s
         V.append(3.0)
         M.append(A3)
     AL = A.full_like(B, fill_value=A.nan)
-    J = 0
+    K = 0
     o, p = (I, 1e-07)
     while not A6(B, remove_nan=D):
-        if J == 1:
+        if K == 1:
             p = o / 10
         if not c:
             0
         AJ = G.deepcopy(B)
-        B = t(value0_array=B, base0_array=C, max_iter=1, cor=a, behavior=u, inter_behavior=K, min_change_v_thr=p, inter_behavior_min_thr=p * 10.0, inter_behavior_max_thr=A.inf, check_behavior=O, plot=D, plot_title=f'Test {J}', clean_run=c, debug_mode=D)
+        B = t(value0_array=B, base0_array=C, max_iter=1, cor=a, behavior=u, inter_behavior=J, min_change_v_thr=p, inter_behavior_min_thr=p * 10.0, inter_behavior_max_thr=A.inf, check_behavior=O, plot=D, plot_title=f'Test {K}', clean_run=c, debug_mode=D)
         o = A.nanmax(A.abs(B - AJ))
         if not c:
             0
@@ -166,14 +166,14 @@ def R(w0_array, z0_array, cor_z=F, extrapolate_min=D, extrapolate_max=D, first_s
             R.append('--')
             L.append(F)
             T.append(2.0)
-            S.append(f'smoothed points iter {J}')
+            S.append(f'smoothed points iter {K}')
             U.append(h)
             V.append(4.0)
             M.append(F)
-        J += 1
+        K += 1
         if A.isclose(o, I, rtol=I, atol=1e-07):
             break
-        if J > B.size + 1:
+        if K > B.size + 1:
             break
     B[B < I] = I
     if i > C[0]:
@@ -191,14 +191,14 @@ def R(w0_array, z0_array, cor_z=F, extrapolate_min=D, extrapolate_max=D, first_s
         C = A.concatenate([C, A.array([j])])
         B = A.concatenate([B, A.array([r[-1]])])
     if b:
-        if J > 1:
-            N = g(A.arange(0.1, Y, 0.9 / (J - 1)))
+        if K > 1:
+            N = g(A.arange(0.1, Y, 0.9 / (K - 1)))
         else:
             N = g(A.arange(0.1, Y, 0.45))
-        if f(N) < J:
+        if f(N) < K:
             N.append(Y)
         A2 = g(e(2, f(N) + 2, 1))
-        for d in e(J):
+        for d in e(K):
             L[A2[d]] = A0(N[d])
             M[A2[d]] = A0(N[d])
         P.append(G.deepcopy(B / 2))
@@ -210,7 +210,7 @@ def R(w0_array, z0_array, cor_z=F, extrapolate_min=D, extrapolate_max=D, first_s
         U.append(O)
         V.append(4.0)
         M.append(O)
-        A8(xs=P, ys=Q, show=K, x_lim=(0.9 * A.nanmin(B / 2), 1.1 * A.nanmax(B / 2)), y_lim=(0.9 * A.nanmin(C), 1.1 * A.nanmax(C)), line_styles=R, line_widths=T, line_colors=L, line_labels=S, marker_styles=U, marker_sizes=V, marker_fill_colors=M, title=plot_title, x_axis_title='Half width (m)', y_axis_title='Elevation (m)', fig_width=15, fig_height=5, add_legend=K)
+        A8(xs=P, ys=Q, show=J, x_lim=(0.9 * A.nanmin(B / 2), 1.1 * A.nanmax(B / 2)), y_lim=(0.9 * A.nanmin(C), 1.1 * A.nanmax(C)), line_styles=R, line_widths=T, line_colors=L, line_labels=S, marker_styles=U, marker_sizes=V, marker_fill_colors=M, title=plot_title, x_axis_title='Half width (m)', y_axis_title='Elevation (m)', fig_width=15, fig_height=5, add_legend=J)
     return (B, C)
 if __name__ == '__main__':
     E = A.array([156.4, 163.7, 167.0, 169.2, 176.8, 167.0, 167.9, 171.9, 172.8, 172.8, 158.8, 158.8, 169.8, 173.4, 174.0, 160.9, 177.4, 172.5, 174.7, 181.1, 172.5, 168.2, 170.7, 157.9, 166.7, 163.4, 167.3, 166.4, 166.4, 158.5, 173.1, 170.7, 173.4, 174.3, 160.6, 148.7, 174.0, 175.3, 169.8, 164.0, 166.4, 171.9, 164.0, 168.2, 170.1, 163.4, 175.6, 171.6, 157.0, 159.4, 161.2, 145.1, 179.2, 173.1, 169.8, 173.7, 167.3, 146.3, 156.1, 140.8, 155.4, 134.4, 173.4, 165.5, 135.0, 135.9, 128.0, 138.4, 171.6, 164.9, 127.4, 121.9, 128.0, 110.3, 112.8, 109.4, 132.6, 106.7, 106.1, 128.9, 111.6])
@@ -218,10 +218,10 @@ if __name__ == '__main__':
     N = 5
     I = 0.01
     Q = A.inf
-    from matplotlib import pyplot as J
-    T, C = J.subplots(ncols=2, nrows=1, figsize=(10, 6))
+    from matplotlib import pyplot as K
+    T, C = K.subplots(ncols=2, nrows=1, figsize=(10, 6))
     C[0].plot(E, H, '*', label='ADCP data')
-    L = M(E, H, max_iter=N, cor_z=F, inter_behavior=K, inter_behavior_min_thr=I, inter_behavior_max_thr=Q, min_change_v_thr=0.0001, first_sweep='forward', cs_float_atol=I, plot=D)
+    L = M(E, H, max_iter=N, cor_z=F, inter_behavior=J, inter_behavior_min_thr=I, inter_behavior_max_thr=Q, min_change_v_thr=0.0001, first_sweep='forward', cs_float_atol=I, plot=D)
     C[0].plot(L[0], L[1], h, color=v, label='Results of cs_single_smooth_interchange')
     C[0].legend()
-    J.show()
+    K.show()

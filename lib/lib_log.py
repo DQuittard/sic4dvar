@@ -37,16 +37,16 @@ def set_logger(param_dict, filename=None):
     logger.addHandler(consoleHandler)
     if param_dict['log_level'] in ['DEBUG', 'INFO']:
         os.makedirs(filename.parent, exist_ok=True)
-        if os.path.exists(filename):
-            os.remove(filename)
-        fileHandler = logging.FileHandler(filename)
+        fileHandler = logging.FileHandler(filename, mode='w')
         fileHandler.setFormatter(logFormatter)
         logger.addHandler(fileHandler)
 
 def close_logger(param_dict):
     logger = logging.getLogger()
-    while logger.hasHandlers():
-        logger.removeHandler(logger.handlers[0])
+    for handler in logger.handlers[:]:
+        handler.flush()
+        handler.close()
+        logger.removeHandler(handler)
 
 def append_to_principal_log(param_dict, message):
     if param_dict['log_level'] in ['DEBUG', 'INFO']:
